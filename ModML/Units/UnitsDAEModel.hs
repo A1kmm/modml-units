@@ -18,7 +18,6 @@ instance Show BaseUnit
   where
     showsPrec _ (BaseUnit i) = showString "BaseUnit_" . shows i
 
-
 mkBaseUnit name =
     do
       u <- M.liftM BaseUnit allocateID
@@ -29,7 +28,7 @@ data BaseUnitTag = BaseUnitTag deriving (D.Typeable, D.Data)
 baseUnitTag = D.typeCode BaseUnitTag
 
 contextMkBaseUnit name tag =
-    contextTaggedID baseUnitTag tag BaseUnit (\u -> annotateModel u "nameIs" name)
+    contextTaggedID baseUnitTag tag BaseUnit (\u -> annotateModel (BaseUnit u) "nameIs" name)
 
 data Units = Units Double (M.Map BaseUnit Double) deriving (Eq, Ord, D.Typeable, D.Data)
 
@@ -45,7 +44,7 @@ unitsMultiplier :: Double -> Units
 unitsMultiplier m = Units m M.empty
 
 unitsTimes :: Units -> Units -> Units
-(Units m1 u1) `unitsTimes` (Units m2 u2) = Units (m1*m2) (M.filter (==0) (M.unionWith (+) u1 u2))
+(Units m1 u1) `unitsTimes` (Units m2 u2) = Units (m1*m2) (M.filter (/=0) (M.unionWith (+) u1 u2))
 u1 $*$ u2 = do
   u1' <- u1
   u2' <- u2
@@ -234,8 +233,8 @@ mergeIntoCoreModelWithValidation coremod unitmod =
 
 describeUnits :: Monad m => Units -> ModelBuilderT m String
 describeUnits (Units mup m)
-    | M.null m = return "dimensionless"
-    | otherwise = M.liftM ((shows mup "*")++) $ M.liftM (L.intercalate "*") $ mapM (uncurry describeAppliedBaseUnit) (M.toList m)
+    | M.null m = return (show mup)
+    | otherwise = (if mup /= 1.0 then M.liftM ((shows mup "*")++) else id) $ M.liftM (L.intercalate "*") $ mapM (uncurry describeAppliedBaseUnit) (M.toList m)
 describeAppliedBaseUnit :: Monad m => BaseUnit -> Double -> ModelBuilderT m String
 describeAppliedBaseUnit _ 0 = return ""
 describeAppliedBaseUnit u 1 = describeBaseUnit u
@@ -261,7 +260,7 @@ binaryRealUnitsMatchFn f ex1 ex2 =
           do
             u1s <- describeUnits u1
             u2s <- describeUnits u2
-            error $ (showString "Units mismatch - " . showString u1s . showString " differs from ") u2s
+            error $ (showString "Units mismatch on binary operator - " . showString u1s . showString " differs from ") u2s
 unaryRealSameUnits f ex =
     do
       (u, ex') <- translateRealExpression ex
