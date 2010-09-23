@@ -185,6 +185,24 @@ nullModel = UnitsDAEModel { equations = [], boundaryEquations = [], intervention
                             commonSubexpressions = [], annotations = M.empty,
                             contextTaggedIDs = M.empty, nextID = 0
                           }
+
+runInCore :: Monad m => ModelBuilderT m Units -> ModelBuilderT m a -> B.ModelBuilderT m a
+runInCore indepunits m = do
+    coremod <- S.get
+    let startingModel =
+          nullModel { annotations = B.annotations coremod,
+                      contextTaggedIDs = B.contextTaggedIDs coremod,
+                      nextID = B.nextID coremod
+                    }
+    -- Step 1: Run with our dummy model with dimensionless independent variable
+    -- units to get the units to use...
+    (indepunits', model) <- M.lift $ flip R.runReaderT dimensionlessE $
+                             S.runStateT indepunits startingModel
+    -- Step 2: Use the units obtained to run the model builder...
+    M.lift $ flip R.runReaderT indepunits' $
+       S.evalStateT m model
+    
+
 unitsToCore :: Monad m => ModelBuilderT m Units -> ModelBuilderT m a -> B.ModelBuilderT m ()
 unitsToCore indepunits x =
     let
@@ -195,13 +213,7 @@ unitsToCore indepunits x =
     in
       do
         coremod <- S.get
-        let startingModel =
-                nullModel { annotations = B.annotations coremod,
-                            contextTaggedIDs = B.contextTaggedIDs coremod,
-                            nextID = B.nextID coremod }
-        (indepunits', model) <- M.lift $ flip R.runReaderT dimensionlessE $ S.runStateT indepunits startingModel
-        coremod' <- M.lift $ flip R.runReaderT indepunits' $
-                      S.evalStateT (mergeInto coremod) model
+        coremod' <- runInCore indepunits (mergeInto coremod)
         S.put coremod'
 
 mergeIntoCoreModelWithValidation :: Monad m => B.BasicDAEModel -> UnitsDAEModel -> ModelBuilderT m B.BasicDAEModel
@@ -285,6 +297,10 @@ translateBoolExpression (Not ex1) = M.liftM B.Not (translateBoolExpression ex1)
 translateBoolExpression (ex1 `Or` ex2) = M.liftM2 B.Or (translateBoolExpression ex1) (translateBoolExpression ex2)
 translateBoolExpression (ex1 `LessThan` ex2) = binaryRealUnitsMatchFn (\u a b -> return $ a `B.LessThan` b) ex1 ex2
 translateBoolExpression (ex1 `Equal` ex2) = binaryRealUnitsMatchFn (\u a b -> return $ a `B.Equal` b) ex1 ex2
+
+runWithUnits :: ModelBuilder a -> a
+runWithUnits v =
+  fst $ I.runIdentity $ flip R.runReaderT dimensionlessE $ S.runStateT v nullModel
 
 translateRealExpression (RealWithUnits u ex) = return $ (u, ex)
 translateRealExpression (RealVariableE (RealVariable u v)) = return $ (u, B.RealVariableE (B.RealVariable v))
