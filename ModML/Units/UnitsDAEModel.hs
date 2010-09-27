@@ -177,8 +177,27 @@ data UnitsDAEModel = UnitsDAEModel {
         nextID :: Int
     } deriving (Eq, Ord, D.Typeable, D.Data)
 
-type ModelBuilderT m a = S.StateT UnitsDAEModel (R.ReaderT Units m) a
+newtype ModelBuilderT m a = ModelBuilderT (S.StateT UnitsDAEModel (R.ReaderT Units m) a)
 type ModelBuilder a = ModelBuilderT I.Identity a
+
+modelBuilderTToState (ModelBuilderT a) = a
+
+instance Monad m => Monad (ModelBuilderT m)
+    where
+      (ModelBuilderT a) >>= b = ModelBuilderT $ a >>= (modelBuilderTToState . b)
+      return a = ModelBuilderT (return a)
+      fail a = ModelBuilderT (fail a)
+instance M.MonadTrans ModelBuilderT
+    where
+      lift a = ModelBuilderT $ M.lift $ M.lift a
+instance Monad m => S.MonadState UnitsDAEModel (ModelBuilderT m)
+    where
+      get = ModelBuilderT $ S.get
+      put = ModelBuilderT . S.put
+instance Monad m => R.MonadReader Units (ModelBuilderT m)
+    where
+      ask = ModelBuilderT $ M.lift R.ask
+      local = undefined
 
 nullModel = UnitsDAEModel { equations = [], boundaryEquations = [], interventionRoots = [],
                             forcedInequalities = [], checkedConditions = [], variables = [],
@@ -197,10 +216,10 @@ runInCore indepunits m = do
     -- Step 1: Run with our dummy model with dimensionless independent variable
     -- units to get the units to use...
     (indepunits', model) <- M.lift $ flip R.runReaderT dimensionlessE $
-                             S.runStateT indepunits startingModel
+                             S.runStateT (modelBuilderTToState indepunits) startingModel
     -- Step 2: Use the units obtained to run the model builder...
     M.lift $ flip R.runReaderT indepunits' $
-       S.evalStateT m model
+       S.evalStateT (modelBuilderTToState m) model
     
 
 unitsToCore :: Monad m => ModelBuilderT m Units -> ModelBuilderT m a -> B.ModelBuilderT m ()
@@ -300,7 +319,7 @@ translateBoolExpression (ex1 `Equal` ex2) = binaryRealUnitsMatchFn (\u a b -> re
 
 runWithUnits :: ModelBuilder a -> a
 runWithUnits v =
-  fst $ I.runIdentity $ flip R.runReaderT dimensionlessE $ S.runStateT v nullModel
+  fst $ I.runIdentity $ flip R.runReaderT dimensionlessE $ S.runStateT (modelBuilderTToState v) nullModel
 
 translateRealExpression (RealWithUnits u ex) = return $ (u, ex)
 translateRealExpression (RealVariableE (RealVariable u v)) = return $ (u, B.RealVariableE (B.RealVariable v))
@@ -727,7 +746,7 @@ xorX mx1 mx2 =
       xorM x1 x2
 
 boundUnits :: Monad m => ModelBuilderT m Units
-boundUnits = M.lift R.ask
+boundUnits = R.ask
 
 initialValueM bv v u iv =
     newBoundaryEq (realConstant boundUnits bv .==. boundVariable) (return v) (realConstant u iv)
@@ -800,6 +819,6 @@ contextMkNewRealVariableM tag u = S.liftM return (contextMkNewRealVariable tag u
 class UnitsModelBuilderAccess m m1 | m -> m1
     where
       liftUnits :: m a -> ModelBuilderT m1 a
-instance UnitsModelBuilderAccess (S.StateT UnitsDAEModel (R.ReaderT Units m1)) m1
+instance UnitsModelBuilderAccess (ModelBuilderT m1) m1
     where
       liftUnits = id
