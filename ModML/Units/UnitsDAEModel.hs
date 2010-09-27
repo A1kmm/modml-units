@@ -1,4 +1,4 @@
-{-#LANGUAGE NoMonomorphismRestriction,DeriveDataTypeable #-}
+{-#LANGUAGE NoMonomorphismRestriction,DeriveDataTypeable,MultiParamTypeClasses,FlexibleInstances,FunctionalDependencies #-}
 module ModML.Units.UnitsDAEModel
 where
 
@@ -796,3 +796,10 @@ contextMkNewRealVariable tag u =
       \id -> S.modify (\m -> m { variables = (RealVariable u id):(variables m) } )
 contextMkNewRealVariableM :: Monad m => D.TypeCode -> Units -> ModelBuilderT m (ModelBuilderT m RealVariable)
 contextMkNewRealVariableM tag u = S.liftM return (contextMkNewRealVariable tag u)
+
+class UnitsModelBuilderAccess m m1 | m -> m1
+    where
+      liftUnits :: m a -> ModelBuilderT m1 a
+instance UnitsModelBuilderAccess (S.StateT UnitsDAEModel (R.ReaderT Units m1)) m1
+    where
+      liftUnits = id
