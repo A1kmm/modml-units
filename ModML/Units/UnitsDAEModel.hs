@@ -30,8 +30,7 @@ baseUnitTag = D.typeCode BaseUnitTag
 contextMkBaseUnit name tag =
     contextTaggedID baseUnitTag tag BaseUnit (\u -> annotateModel (BaseUnit u) "nameIs" name)
 
-data Units = Units Double (M.Map BaseUnit Double) deriving (Eq, Ord, D.Typeable, D.Data)
-
+data Units = Units Double (M.Map BaseUnit Double) deriving (Eq, Ord, Show, D.Typeable, D.Data)
 
 dimensionlessE = Units 1.0 M.empty
 dimensionless = return dimensionlessE
@@ -818,7 +817,7 @@ contextMkNewRealVariableM tag u = S.liftM return (contextMkNewRealVariable tag u
 
 class UnitsModelBuilderAccess m m1 | m -> m1
     where
-      liftUnits :: m a -> ModelBuilderT m1 a
+      liftUnits :: ModelBuilderT m1 a -> m a
 instance UnitsModelBuilderAccess (ModelBuilderT m1) m1
     where
       liftUnits = id
