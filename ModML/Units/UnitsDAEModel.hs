@@ -1,4 +1,4 @@
-{-#LANGUAGE NoMonomorphismRestriction,DeriveDataTypeable,MultiParamTypeClasses,FlexibleInstances,FunctionalDependencies #-}
+{-#LANGUAGE NoMonomorphismRestriction,DeriveDataTypeable,MultiParamTypeClasses,FlexibleInstances,FunctionalDependencies,TemplateHaskell #-}
 module ModML.Units.UnitsDAEModel
 where
 
@@ -12,6 +12,8 @@ import qualified Data.Map as M
 import qualified Control.Monad as M
 import qualified Control.Monad.Trans as M
 import qualified Data.List as L
+import qualified Language.Haskell.TH.Syntax as T
+import qualified Data.Char as C
 
 newtype BaseUnit = BaseUnit Int deriving (Eq, Ord, D.Typeable, D.Data)
 instance Show BaseUnit
@@ -821,3 +823,18 @@ class UnitsModelBuilderAccess m m1 | m -> m1
 instance UnitsModelBuilderAccess (ModelBuilderT m1) m1
     where
       liftUnits = id
+
+-- Finally, also provide some Template Haskell utilities for declaring base types...
+declareBaseType :: String -> String -> T.Q [T.Dec]
+declareBaseType prettyName varName = do
+  let firstUpper [] = []
+  let firstUpper (a:l) = (C.toUpper a):l
+  let tagTypeName = T.mkName $ (firstUpper varName) ++ "Tag"
+  let dataDecl = T.DataD [] tagTypeName [] [T.NormalC tagTypeName []] [T.mkName "D.Typeable", T.mkName "D.Data"]
+  typeCodeExpr <- [e|D.typeCode|]
+  let tagVal = T.ValD (T.VarP $ T.mkName (varName ++ "Tag")) (T.NormalB $ T.AppE typeCodeExpr (T.ConE tagTypeName)) []
+  let contextMkBaseUnitExpr = T.mkName "U.contextMkBaseUnit"
+  let varVal = T.ValD (T.VarP $ T.mkName varName)
+                 (T.NormalB $ T.AppE (T.AppE (T.VarE contextMkBaseUnitExpr) $ T.LitE (T.StringL prettyName))
+                                     (T.VarE $ T.mkName (varName ++ "Tag"))) []
+  return [dataDecl, tagVal, varVal]
