@@ -7,25 +7,26 @@ import qualified Data.Data as D
 import qualified Control.Monad as M
 
 import qualified ModML.Units.UnitsDAEModel as U
+import ModML.Units.UnitsDAEModel (($**$),($*$))
 
-uYotta = U.unitsMultiplier 1E24
-uZetta = U.unitsMultiplier 1E21
-uExa = U.unitsMultiplier 1E18
-uPeta = U.unitsMultiplier 1E15
-uTera = U.unitsMultiplier 1E12
-uGiga = U.unitsMultiplier 1E9
-uMega = U.unitsMultiplier 1E6
-uKilo = U.unitsMultiplier 1E3
-uHecto = U.unitsMultiplier 1E2
-uDeca = U.unitsMultiplier 1E1
-uDeci = U.unitsMultiplier 1E-1
-uCenti = U.unitsMultiplier 1E-2
-uMilli = U.unitsMultiplier 1E-3
-uMicro = U.unitsMultiplier 1E-6
-uNano = U.unitsMultiplier 1E-9
-uPico = U.unitsMultiplier 1E-12
+uYotta = return $ U.unitsMultiplier 1E24
+uZetta = return $ U.unitsMultiplier 1E21
+uExa   = return $ U.unitsMultiplier 1E18
+uPeta  = return $ U.unitsMultiplier 1E15
+uTera  = return $ U.unitsMultiplier 1E12
+uGiga  = return $ U.unitsMultiplier 1E9
+uMega  = return $ U.unitsMultiplier 1E6
+uKilo  = return $ U.unitsMultiplier 1E3
+uHecto = return $ U.unitsMultiplier 1E2
+uDeca  = return $ U.unitsMultiplier 1E1
+uDeci  = return $ U.unitsMultiplier 1E-1
+uCenti = return $ U.unitsMultiplier 1E-2
+uMilli = return $ U.unitsMultiplier 1E-3
+uMicro = return $ U.unitsMultiplier 1E-6
+uNano  = return $ U.unitsMultiplier 1E-9
+uPico  = return $ U.unitsMultiplier 1E-12
 uFemto = U.unitsMultiplier 1E-15
-uAtto = U.unitsMultiplier 1E-18
+uAtto  = U.unitsMultiplier 1E-18
 uZepto = U.unitsMultiplier 1E-21
 uYocto = U.unitsMultiplier 1E-24
 
@@ -44,3 +45,5 @@ uAmpere = M.liftM U.singletonUnit ampereBase
 uMole = M.liftM U.singletonUnit moleBase
 uCandela = M.liftM U.singletonUnit candelaBase
 uKelvin = M.liftM U.singletonUnit kelvinBase
+
+uLitre = (uCenti $*$ uMetre) $**$ 3

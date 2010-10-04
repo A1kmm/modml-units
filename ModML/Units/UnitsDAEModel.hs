@@ -46,16 +46,18 @@ unitsMultiplier m = Units m M.empty
 
 unitsTimes :: Units -> Units -> Units
 (Units m1 u1) `unitsTimes` (Units m2 u2) = Units (m1*m2) (M.filter (/=0) (M.unionWith (+) u1 u2))
-u1 $*$ u2 = do
+u1 `unitsTimesX` u2 = do
   u1' <- u1
   u2' <- u2
   return $ u1' `unitsTimes` u2'
+($*$) = unitsTimesX
 
 unitsPow :: Units -> Double -> Units
 (Units m1 u1) `unitsPow` v = Units (m1**v) (M.map (*v) u1)
-u1 $**$ mup = do
+u1 `unitsPowX` mup = do
   u1' <- u1
   return $ u1' `unitsPow` mup
+($**$) = unitsPowX
 
 mkCombinedUnitsE :: Double -> [(BaseUnit, Double)] -> Units
 mkCombinedUnitsE m = Units m . M.fromList
@@ -481,15 +483,15 @@ boolCommonSubexpression me = do
 
 andM :: Monad m => BoolExpression -> BoolExpression -> ModelBuilderT m BoolExpression
 a `andM` b = return $ a `And` b
-(.&&.) :: Monad m => ModelBuilderT m BoolExpression -> ModelBuilderT m BoolExpression -> ModelBuilderT m BoolExpression
-(.&&.) = S.liftM2 And
-andX = (.&&.)
+andX :: Monad m => ModelBuilderT m BoolExpression -> ModelBuilderT m BoolExpression -> ModelBuilderT m BoolExpression
+andX = S.liftM2 And
+(.&&.) = andX
 
 orM :: Monad m => BoolExpression -> BoolExpression -> ModelBuilderT m BoolExpression
 a `orM` b = return $ a `Or` b
-(.||.) :: Monad m => ModelBuilderT m BoolExpression -> ModelBuilderT m BoolExpression -> ModelBuilderT m BoolExpression
-(.||.) = S.liftM2 Or
-orX = (.||.)
+orX :: Monad m => ModelBuilderT m BoolExpression -> ModelBuilderT m BoolExpression -> ModelBuilderT m BoolExpression
+orX = S.liftM2 Or
+(.||.) = orX
 
 notM :: Monad m => BoolExpression -> ModelBuilderT m BoolExpression
 notM = return . Not
@@ -504,6 +506,30 @@ a `lessThanX` b = do
   b' <- b
   a' `lessThanM` b'
 (.<.) = lessThanX
+
+lessEqualM :: Monad m => RealExpression -> RealExpression -> ModelBuilderT m BoolExpression
+a `lessEqualM` b = do
+  aex <- realCommonSubexpressionM a
+  bex <- realCommonSubexpressionM b
+  (aex `lessThanM` bex) .||. (aex `equalM` bex)
+lessEqualX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m BoolExpression
+a `lessEqualX` b = do
+  a' <- a
+  b' <- b
+  a' `lessEqualM` b'
+(.<=.) = lessEqualX
+
+greaterThanM :: Monad m => RealExpression -> RealExpression -> ModelBuilderT m BoolExpression
+a `greaterThanM` b = notX $ a `lessEqualM` b
+greaterThanX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m BoolExpression
+a `greaterThanX` b = notX $ a `lessEqualX` b
+(.>.) = greaterThanX
+
+greaterEqualM :: Monad m => RealExpression -> RealExpression -> ModelBuilderT m BoolExpression
+a `greaterEqualM` b = notX $ a `lessThanM` b
+greaterEqualX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m BoolExpression
+a `greaterEqualX` b = notX $ a `lessThanX` b
+(.>=.) = greaterEqualX
 
 equalM :: Monad m => RealExpression -> RealExpression -> ModelBuilderT m BoolExpression
 a `equalM` b = return $ a `Equal` b
@@ -616,9 +642,9 @@ dividedX = (./.)
 
 powerM :: Monad m => RealExpression -> RealExpression -> ModelBuilderT m RealExpression
 a `powerM` b = return $ a `Power` b
-(.**.) :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
-(.**.) = S.liftM2 Power
-powerX = (.**.)
+powerX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
+powerX = S.liftM2 Power
+(.**.) = powerX
 
 logBaseM :: Monad m => RealExpression -> RealExpression -> ModelBuilderT m RealExpression
 a `logBaseM` b = return $ a `LogBase` b
@@ -824,7 +850,7 @@ instance UnitsModelBuilderAccess (ModelBuilderT m1) m1
     where
       liftUnits = id
 
--- Finally, also provide some Template Haskell utilities for declaring base types...
+-- Also provide some Template Haskell utilities for declaring base types...
 declareBaseType :: String -> String -> T.Q [T.Dec]
 declareBaseType prettyName varName = do
   let firstUpper [] = []
@@ -838,3 +864,13 @@ declareBaseType prettyName varName = do
                  (T.NormalB $ T.AppE (T.AppE (T.VarE contextMkBaseUnitExpr) $ T.LitE (T.StringL prettyName))
                                      (T.VarE $ T.mkName (varName ++ "Tag"))) []
   return [dataDecl, tagVal, varVal]
+
+infixr 2  .||.
+infixr 3  .&&.
+infix  4  .==., .<., .>., .<=., .>=.
+infixl 6 .+., .-.
+infixl 7 .*.
+infixl 7 $*$
+infixl 7 ./.
+infixl 8 .**.
+infixl 8 $**$
