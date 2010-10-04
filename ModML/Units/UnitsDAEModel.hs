@@ -20,18 +20,6 @@ instance Show BaseUnit
   where
     showsPrec _ (BaseUnit i) = showString "BaseUnit_" . shows i
 
-mkBaseUnit name =
-    do
-      u <- M.liftM BaseUnit allocateID
-      annotateModel u "nameIs" name
-      return u
-
-data BaseUnitTag = BaseUnitTag deriving (D.Typeable, D.Data)
-baseUnitTag = D.typeCode BaseUnitTag
-
-contextMkBaseUnit name tag =
-    contextTaggedID baseUnitTag tag BaseUnit (\u -> annotateModel (BaseUnit u) "nameIs" name)
-
 data Units = Units Double (M.Map BaseUnit Double) deriving (Eq, Ord, Show, D.Typeable, D.Data)
 
 dimensionlessE = Units 1.0 M.empty
@@ -562,20 +550,52 @@ realCommonSubexpression me = do
   return (return ex)
 
 
-mkNewRealVariable :: Monad m => Units -> ModelBuilderT m RealVariable
-mkNewRealVariable u = do
+requireNameM :: (Monad m, Show a) => ModelBuilderT m a -> String -> ModelBuilderT m a
+requireNameM m n = do
+    m' <- m
+    annotateModel m' "nameIs" n
+    return m'
+
+data BaseUnitTag = BaseUnitTag deriving (D.Typeable, D.Data)
+baseUnitTag = D.typeCode BaseUnitTag
+
+newBaseUnit :: Monad m => ModelBuilderT m BaseUnit
+newBaseUnit = M.liftM BaseUnit allocateID
+
+newNamedBaseUnit :: Monad m => String -> ModelBuilderT m BaseUnit
+newNamedBaseUnit = requireNameM newBaseUnit
+
+newTaggedBaseUnit :: Monad m => D.TypeCode -> ModelBuilderT m BaseUnit
+newTaggedBaseUnit tag = contextTaggedID baseUnitTag tag BaseUnit return
+
+newNamedTaggedBaseUnit :: Monad m => D.TypeCode -> String -> ModelBuilderT m BaseUnit
+newNamedTaggedBaseUnit t = requireNameM (newTaggedBaseUnit t)
+
+data RealVariableContextTag = RealVariableContextTag deriving (D.Typeable, D.Data)
+realVariableContextTag = D.typeCode RealVariableContextTag
+
+newRealVariable :: Monad m => ModelBuilderT m Units -> ModelBuilderT m RealVariable
+newRealVariable u = do
   id <- allocateID
-  let v = RealVariable u id
+  u' <- u
+  let v = RealVariable u' id
   S.modify (\m -> m { variables = v:(variables m) } )
   return v
 
-mkNewNamedRealVariable u name = do
-  v <- mkNewRealVariable u
-  annotateModel v "nameIs" name
-  return v
+newNamedRealVariable :: Monad m => ModelBuilderT m Units -> String -> ModelBuilderT m RealVariable
+newNamedRealVariable u = requireNameM (newRealVariable u)
 
-mkNewRealVariableM :: Monad m => Units -> ModelBuilderT m (ModelBuilderT m RealVariable)
-mkNewRealVariableM u = S.liftM return (mkNewRealVariable u)
+newTaggedRealVariable :: Monad m => ModelBuilderT m Units -> D.TypeCode -> ModelBuilderT m RealVariable
+newTaggedRealVariable u tag = do
+  u' <- u
+  contextTaggedID realVariableContextTag tag (RealVariable u')
+                      (\v -> do
+                         S.modify (\m -> m { variables = (RealVariable u' v):(variables m) } )
+                         return v
+                      )
+
+newNamedTaggedRealVariable :: Monad m => ModelBuilderT m Units -> D.TypeCode -> String -> ModelBuilderT m RealVariable
+newNamedTaggedRealVariable u tag = requireNameM (newTaggedRealVariable u tag)
 
 realVariableM :: Monad m => RealVariable -> ModelBuilderT m RealExpression
 realVariableM = return . RealVariableE 
@@ -583,10 +603,11 @@ realVariableX :: Monad m => ModelBuilderT m RealVariable -> ModelBuilderT m Real
 realVariableX = S.liftM RealVariableE
 realVariable = realVariableX
 
+{-
 newRealVariableE u =
-  realVariable (mkNewRealVariable u)
+  realVariable (newRealVariable u)
 newNamedRealVariableE u name = do
-  realVariable (mkNewNamedRealVariable u name)
+  realVariable (newNamedRealVariable u name)
 
 newRealVariable :: Monad m => ModelBuilderT m Units -> ModelBuilderT m (ModelBuilderT m RealExpression)
 newRealVariable u = do
@@ -598,6 +619,7 @@ newNamedRealVariable u name = do
   u' <- u
   v <- newNamedRealVariableE u' name
   return (return v)
+-}
 
 boundVariableM :: Monad m => ModelBuilderT m RealExpression
 boundVariableM = return $ BoundVariableE
@@ -807,8 +829,6 @@ data RealCSEContextTag = RealCSEContextTag deriving (D.Typeable, D.Data)
 realCSEContextTag = D.typeCode RealCSEContextTag
 data BoolCSEContextTag = BoolCSEContextTag deriving (D.Typeable, D.Data)
 boolCSEContextTag = D.typeCode BoolCSEContextTag
-data RealVariableContextTag = RealVariableContextTag deriving (D.Typeable, D.Data)
-realVariableContextTag = D.typeCode RealVariableContextTag
 
 contextBoolCommonSubexpressionM :: Monad m => D.TypeCode -> BoolExpression -> ModelBuilderT m BoolExpression
 contextBoolCommonSubexpressionM tag e =
@@ -836,13 +856,6 @@ contextRealCommonSubexpression tag me = do
   ex <- contextRealCommonSubexpressionX tag me
   return (return ex)
 
-contextMkNewRealVariable :: Monad m => D.TypeCode -> Units -> ModelBuilderT m RealVariable
-contextMkNewRealVariable tag u =
-    contextTaggedID realVariableContextTag tag (RealVariable u) $
-      \id -> S.modify (\m -> m { variables = (RealVariable u id):(variables m) } )
-contextMkNewRealVariableM :: Monad m => D.TypeCode -> Units -> ModelBuilderT m (ModelBuilderT m RealVariable)
-contextMkNewRealVariableM tag u = S.liftM return (contextMkNewRealVariable tag u)
-
 class UnitsModelBuilderAccess m m1 | m -> m1
     where
       liftUnits :: ModelBuilderT m1 a -> m a
@@ -851,19 +864,39 @@ instance UnitsModelBuilderAccess (ModelBuilderT m1) m1
       liftUnits = id
 
 -- Also provide some Template Haskell utilities for declaring base types...
-declareBaseType :: String -> String -> T.Q [T.Dec]
-declareBaseType prettyName varName = do
+declareTaggedSomething :: String -> T.Exp -> String -> T.Q [T.Dec]
+declareTaggedSomething sth expr varName = do
   let firstUpper [] = []
   let firstUpper (a:l) = (C.toUpper a):l
   let tagTypeName = T.mkName $ (firstUpper varName) ++ "Tag"
   let dataDecl = T.DataD [] tagTypeName [] [T.NormalC tagTypeName []] [T.mkName "D.Typeable", T.mkName "D.Data"]
   typeCodeExpr <- [e|D.typeCode|]
   let tagVal = T.ValD (T.VarP $ T.mkName (varName ++ "Tag")) (T.NormalB $ T.AppE typeCodeExpr (T.ConE tagTypeName)) []
-  let contextMkBaseUnitExpr = T.mkName "U.contextMkBaseUnit"
   let varVal = T.ValD (T.VarP $ T.mkName varName)
-                 (T.NormalB $ T.AppE (T.AppE (T.VarE contextMkBaseUnitExpr) $ T.LitE (T.StringL prettyName))
-                                     (T.VarE $ T.mkName (varName ++ "Tag"))) []
+                 (T.NormalB expr) []
   return [dataDecl, tagVal, varVal]
+
+
+declareNamedTaggedSomething :: String -> String -> String -> T.Q [T.Dec]
+declareNamedTaggedSomething sth prettyName varName =
+  let
+      contextMk = T.mkName sth
+      applyName = T.AppE (T.AppE (T.VarE contextMk) $ T.VarE $ T.mkName (varName ++ "Tag"))
+                    (T.LitE (T.StringL prettyName))
+  in
+    declareTaggedSomething sth applyName varName
+
+declareBaseType :: String -> String -> T.Q [T.Dec]
+declareBaseType = declareNamedTaggedSomething "U.newNamedTaggedBaseUnit"
+
+-- | Declares a variable using Template Haskell. The expression given as the
+-- | argument must be of type Monad m => ModelBuilderT m Units.
+declareRealVariable :: T.Q T.Exp -> String -> String -> T.Q [T.Dec]
+declareRealVariable u prettyName varName = do
+  u' <- u
+  let applyUName = T.AppE (T.AppE (T.AppE (T.VarE $ T.mkName "U.newNamedTaggedRealVariable") u') $ T.VarE $ T.mkName (varName ++ "Tag"))
+                    (T.LitE (T.StringL prettyName))
+  declareTaggedSomething "U.newNamedTaggedRealVariable" applyUName varName
 
 infixr 2  .||.
 infixr 3  .&&.

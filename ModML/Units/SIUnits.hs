@@ -7,7 +7,7 @@ import qualified Data.Data as D
 import qualified Control.Monad as M
 
 import qualified ModML.Units.UnitsDAEModel as U
-import ModML.Units.UnitsDAEModel (($**$),($*$))
+import ModML.Units.UnitsDAEOpAliases
 
 uYotta = return $ U.unitsMultiplier 1E24
 uZetta = return $ U.unitsMultiplier 1E21
@@ -46,4 +46,28 @@ uMole = M.liftM U.singletonUnit moleBase
 uCandela = M.liftM U.singletonUnit candelaBase
 uKelvin = M.liftM U.singletonUnit kelvinBase
 
+uRadian = U.dimensionless
+uSteradian = U.dimensionless
+uHertz = uSecond $**$ (-1)
+uNewton = uMetre $*$ uKilogram $*$ uSecond $**$ (-2)
+uPascal = uNewton $*$ uMetre $**$ (-2)
+uJoule = uNewton $*$ uMetre
+uWatt = uJoule $*$ uSecond $**$ (-1)
+uCoulomb = uSecond $*$ uAmpere
+uVolt = uWatt $*$ uAmpere $**$ (-1)
+uFarad = uColumb $*$ uVolt $**$ (-1)
+uOhm = uVolt $*$ uAmpere $**$ (-1)
+uSiemens = uAmpere $*$ uVolt $**$ (-1)
+uWeber = uVolt $*$ uSecond
+uTesla = uWeber $*$ uMetre $**$ (-2)
+uHenry = uWeber $*$ uAmpere $**$ (-1)
+uCelsius = uKelvin
+uLumen = uCandela
+uLux = uLumen $*$ uMetre $**$ (-2)
+uBecquerel = uSecond $**$ (-1)
+uGray = uJoule $*$ uKilogram $**$ (-1)
+uSievert = uJoule $*$ uKilogram $**$ (-1)
+uKatal = uMole $**$ (-1) $*$ uSecond
+
+-- Not technically an SI unit, but mentioned in the SI guide so included here.
 uLitre = (uCenti $*$ uMetre) $**$ 3
