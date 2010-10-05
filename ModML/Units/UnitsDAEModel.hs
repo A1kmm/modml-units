@@ -864,8 +864,8 @@ instance UnitsModelBuilderAccess (ModelBuilderT m1) m1
       liftUnits = id
 
 -- Also provide some Template Haskell utilities for declaring base types...
-declareTaggedSomething :: String -> T.Exp -> String -> T.Q [T.Dec]
-declareTaggedSomething sth expr varName = do
+declareTaggedSomething :: T.Exp -> String -> T.Q [T.Dec]
+declareTaggedSomething expr varName = do
   let firstUpper [] = []
   let firstUpper (a:l) = (C.toUpper a):l
   let tagTypeName = T.mkName $ (firstUpper varName) ++ "Tag"
@@ -884,7 +884,7 @@ declareNamedTaggedSomething sth prettyName varName =
       applyName = T.AppE (T.AppE (T.VarE contextMk) $ T.VarE $ T.mkName (varName ++ "Tag"))
                     (T.LitE (T.StringL prettyName))
   in
-    declareTaggedSomething sth applyName varName
+    declareTaggedSomething applyName varName
 
 declareBaseType :: String -> String -> T.Q [T.Dec]
 declareBaseType = declareNamedTaggedSomething "U.newNamedTaggedBaseUnit"
@@ -896,7 +896,7 @@ declareRealVariable u prettyName varName = do
   u' <- u
   let applyUName = T.AppE (T.AppE (T.AppE (T.VarE $ T.mkName "U.newNamedTaggedRealVariable") u') $ T.VarE $ T.mkName (varName ++ "Tag"))
                     (T.LitE (T.StringL prettyName))
-  declareTaggedSomething "U.newNamedTaggedRealVariable" applyUName varName
+  declareTaggedSomething applyUName varName
 
 infixr 2  .||.
 infixr 3  .&&.
