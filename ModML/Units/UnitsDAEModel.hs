@@ -226,6 +226,17 @@ unitsToCore indepunits x =
         coremod' <- runInCore indepunits (mergeInto coremod)
         S.put coremod'
 
+translateVariableAnnotations :: M.Map String String -> [((String, String), String)] -> [((String, String), String)] -> [((String, String), String)]
+translateVariableAnnotations _ nl [] = nl
+translateVariableAnnotations m nl (((s,p),v):l) =
+    case M.lookup s m
+    of
+      Nothing -> translateVariableAnnotations m (((s, p), v):nl) l
+      Just s' -> translateVariableAnnotations m (((s', p), v):((s, p), v):nl) l
+
+pairBothShow :: (Show a, Show b) => (a, b) -> (String, String)
+pairBothShow (x, y) = (show x, show y)
+
 mergeIntoCoreModelWithValidation :: Monad m => B.BasicDAEModel -> UnitsDAEModel -> ModelBuilderT m B.BasicDAEModel
 mergeIntoCoreModelWithValidation coremod unitmod =
     do
@@ -246,9 +257,10 @@ mergeIntoCoreModelWithValidation coremod unitmod =
          B.interventionRoots = (B.interventionRoots coremod) ++ iroots,
          B.forcedInequalities = (B.forcedInequalities coremod) ++ forcedIeqs,
          B.checkedConditions = (B.checkedConditions coremod) ++ checkedConds,
-         B.variables = (B.variables coremod) ++ vars,
+         B.variables = (B.variables coremod) ++ map snd vars,
          B.commonSubexpressions = (B.commonSubexpressions coremod) ++ cses,
-         B.annotations = annotations unitmod,
+         B.annotations = M.fromList $ translateVariableAnnotations (M.fromList . map (pairBothShow) $ vars) [] .
+                                        M.toList $ annotations unitmod,
          B.contextTaggedIDs = contextTaggedIDs unitmod,
          B.nextID = nextID unitmod
        }
@@ -379,7 +391,7 @@ translateRealExpression (ASinh r1) = unaryDimensionless B.ASinh r1
 translateRealExpression (ATanh r1) = unaryDimensionless B.ATanh r1
 translateRealExpression (ACosh r1) = unaryDimensionless B.ACosh r1
 
-translateVariable (RealVariable _ n) = return $ B.RealVariable n
+translateVariable v@(RealVariable _ n) = return $ (v, B.RealVariable n)
 translateSubexpression (FromRealCommonSubexpression rcs) =
     M.liftM B.FromRealCommonSubexpression $ M.liftM snd $ translateRealCommonSubexpression rcs
 translateSubexpression (FromBoolCommonSubexpression bcs) =
