@@ -22,6 +22,20 @@ instance Show BaseUnit
 
 data Units = Units Double (M.Map BaseUnit Double) deriving (Eq, Ord, Show, D.Typeable, D.Data)
 
+class AlmostEq a
+    where
+      (=~=) :: a -> a -> Bool
+      (=~/) :: a -> a -> Bool
+      a =~/ b = not $ a =~= b
+
+doubleWithinTolerance eps a b = (a==b) || ((abs $ a - b) / (min (abs a) (abs b))) <= eps
+instance AlmostEq Units
+    where
+      (Units n1 m1) =~= (Units n2 m2) = doubleWithinTolerance 1E-14 n1 n2 &&
+                        (all (\((bu1, mu1), (bu2, mu2)) -> bu1==bu2 &&
+                                                           doubleWithinTolerance 1E-14 mu1 mu2) $
+                             zip (M.toList m1) (M.toList m2))
+
 dimensionlessE = Units 1.0 M.empty
 dimensionless = return dimensionlessE
 singletonUnit b = Units 1.0 (M.singleton b 1)
@@ -66,7 +80,7 @@ instance Show RealVariable
     where
       showsPrec _ v = showString "Variable_" . shows (variableId v)
 
-data RealEquation = RealEquation RealExpression RealExpression deriving (Eq, Ord, D.Typeable, D.Data)
+data RealEquation = RealEquation RealExpression RealExpression deriving (Eq, Ord, D.Typeable, D.Data, Show)
 
 data BoolExpression =
     -- A constant true or false.
@@ -81,7 +95,7 @@ data BoolExpression =
     BoolExpression `Or` BoolExpression |
     RealExpression `LessThan` RealExpression |
     RealExpression `Equal` RealExpression
-                   deriving (Eq, Ord, D.Typeable, D.Data)
+                   deriving (Eq, Ord, D.Typeable, D.Data, Show)
 
 data RealExpression =
     -- A core expression with units applied:
@@ -125,23 +139,23 @@ data RealExpression =
     ASinh RealExpression |
     ATanh RealExpression |
     ACosh RealExpression
-          deriving (Eq, Ord, D.Typeable, D.Data)
+          deriving (Eq, Ord, D.Typeable, D.Data, Show)
 
 class (Ord a) => CommonSubexpression a
   where
     commonSubexpressionId :: a -> Int
 
-data RealCommonSubexpression = RealCommonSubexpression Int RealExpression deriving (Eq, Ord, D.Typeable, D.Data)
+data RealCommonSubexpression = RealCommonSubexpression Int RealExpression deriving (Eq, Ord, D.Typeable, D.Data, Show)
 instance CommonSubexpression RealCommonSubexpression
   where
     commonSubexpressionId (RealCommonSubexpression a _) = a
 
-data BoolCommonSubexpression = BoolCommonSubexpression Int BoolExpression deriving (Eq, Ord, D.Typeable, D.Data)
+data BoolCommonSubexpression = BoolCommonSubexpression Int BoolExpression deriving (Eq, Ord, D.Typeable, D.Data, Show)
 instance CommonSubexpression BoolCommonSubexpression
   where
     commonSubexpressionId (BoolCommonSubexpression a _) = a
 
-data AnyCommonSubexpression = FromRealCommonSubexpression RealCommonSubexpression | FromBoolCommonSubexpression BoolCommonSubexpression deriving (Eq, Ord, D.Typeable, D.Data)
+data AnyCommonSubexpression = FromRealCommonSubexpression RealCommonSubexpression | FromBoolCommonSubexpression BoolCommonSubexpression deriving (Eq, Ord, D.Typeable, D.Data, Show)
 instance CommonSubexpression AnyCommonSubexpression
   where
     commonSubexpressionId (FromRealCommonSubexpression r) = commonSubexpressionId r
@@ -166,7 +180,7 @@ data UnitsDAEModel = UnitsDAEModel {
         annotations :: M.Map (String, String) String,
         contextTaggedIDs :: M.Map (D.TypeCode, D.TypeCode) Int,
         nextID :: Int
-    } deriving (Eq, Ord, D.Typeable, D.Data)
+    } deriving (Eq, Ord, D.Typeable, D.Data, Show)
 
 newtype ModelBuilderT m a = ModelBuilderT (S.StateT UnitsDAEModel (R.ReaderT Units m) a)
 type ModelBuilder a = ModelBuilderT I.Identity a
@@ -275,26 +289,30 @@ describeAppliedBaseUnit u 1 = describeBaseUnit u
 describeAppliedBaseUnit u ex = do
   u1 <- describeBaseUnit u
   return $ (showString u1 . showString "^" . shows ex) ""
-describeBaseUnit u = do
-  a <- getAnnotation u "nameIs"
-  case a
-    of
-      Nothing -> return $ show u
-      Just v -> return v
 
-binaryRealUnitsMatchFn :: Monad m => (Units -> B.RealExpression -> B.RealExpression -> ModelBuilderT m a) -> RealExpression -> RealExpression -> ModelBuilderT m a
-binaryRealUnitsMatchFn f ex1 ex2 =
+describeBaseUnit :: Monad m => BaseUnit -> ModelBuilderT m String
+describeBaseUnit u = do
+    a <- getAnnotation u "nameIs"
+    case a
+      of
+        Nothing -> return $ show u
+        Just v -> return (read v)
+
+binaryRealUnitsMatchFn :: Monad m => String -> (Units -> B.RealExpression -> B.RealExpression -> ModelBuilderT m a) -> RealExpression -> RealExpression -> ModelBuilderT m a
+binaryRealUnitsMatchFn n f ex1 ex2 =
     do
       (u1, ex1') <- translateRealExpression ex1
       (u2, ex2') <- translateRealExpression ex2
-      if u1 == u2
+      if u1 =~= u2
         then
           f u1 ex1' ex2'
         else
           do
             u1s <- describeUnits u1
             u2s <- describeUnits u2
-            error $ (showString "Units mismatch on binary operator - " . showString u1s . showString " differs from ") u2s
+            error $ (showString "Units mismatch on (" . shows ex1' . showString ") `" .
+                     showString n . showString "` (" . shows ex2' . showString ") - " .
+                     showString u1s . showString " differs from ") u2s
 unaryRealSameUnits f ex =
     do
       (u, ex') <- translateRealExpression ex
@@ -310,15 +328,15 @@ unaryDimensionless f ex =
             us <- describeUnits u
             error $ (showString "Units mismatch - expected dimensionless units, got ") us
 
-translateRealEquation (RealEquation ex1 ex2) = binaryRealUnitsMatchFn (\u a b -> return $ B.RealEquation a b) ex1 ex2
+translateRealEquation (RealEquation ex1 ex2) = binaryRealUnitsMatchFn "equation" (\u a b -> return $ B.RealEquation a b) ex1 ex2
 
 translateBoolExpression (BoolBasicExpression e) = return $ e
 translateBoolExpression (BoolCommonSubexpressionE bce) = M.liftM B.BoolCommonSubexpressionE (translateBoolCommonSubexpression bce)
 translateBoolExpression (ex1 `And` ex2) = M.liftM2 B.And (translateBoolExpression ex1) (translateBoolExpression ex2)
 translateBoolExpression (Not ex1) = M.liftM B.Not (translateBoolExpression ex1)
 translateBoolExpression (ex1 `Or` ex2) = M.liftM2 B.Or (translateBoolExpression ex1) (translateBoolExpression ex2)
-translateBoolExpression (ex1 `LessThan` ex2) = binaryRealUnitsMatchFn (\u a b -> return $ a `B.LessThan` b) ex1 ex2
-translateBoolExpression (ex1 `Equal` ex2) = binaryRealUnitsMatchFn (\u a b -> return $ a `B.Equal` b) ex1 ex2
+translateBoolExpression (ex1 `LessThan` ex2) = binaryRealUnitsMatchFn "LessThan" (\u a b -> return $ a `B.LessThan` b) ex1 ex2
+translateBoolExpression (ex1 `Equal` ex2) = binaryRealUnitsMatchFn "Equal" (\u a b -> return $ a `B.Equal` b) ex1 ex2
 
 runWithUnits :: ModelBuilder a -> a
 runWithUnits v =
@@ -338,11 +356,11 @@ translateRealExpression (RealCommonSubexpressionE rce) = do
   return $ (u, B.RealCommonSubexpressionE ex)
 translateRealExpression (If b1 r1 r2) = do
   cond <- translateBoolExpression b1
-  binaryRealUnitsMatchFn (\u ex1 ex2 -> return (u, B.If cond ex1 ex2)) r1 r2
+  binaryRealUnitsMatchFn "If" (\u ex1 ex2 -> return (u, B.If cond ex1 ex2)) r1 r2
 translateRealExpression (r1 `Plus` r2) =
-  binaryRealUnitsMatchFn (\u ex1 ex2 -> return $ (u, ex1 `B.Plus` ex2)) r1 r2
+  binaryRealUnitsMatchFn "Plus" (\u ex1 ex2 -> return $ (u, ex1 `B.Plus` ex2)) r1 r2
 translateRealExpression (r1 `Minus` r2) =
-  binaryRealUnitsMatchFn (\u ex1 ex2 -> return $ (u, ex1 `B.Minus` ex2)) r1 r2
+  binaryRealUnitsMatchFn "Minus" (\u ex1 ex2 -> return $ (u, ex1 `B.Minus` ex2)) r1 r2
 translateRealExpression (r1 `Times` r2) = do
   (u1, ex1) <- translateRealExpression r1
   (u2, ex2) <- translateRealExpression r2
@@ -368,7 +386,7 @@ translateRealExpression (LogBase r1 r2) = do
   if isDimensionless u1 && isDimensionless u2
     then
       return $ (dimensionlessE, B.LogBase ex1 ex2)
-    else if (M.size m1 /= M.size m2) || (u1 /= (u2 `unitsPow` (((snd . M.elemAt 0) m1) / ((snd . M.elemAt 0) m2))))
+    else if (M.size m1 /= M.size m2) || (u1 =~/ (u2 `unitsPow` (((snd . M.elemAt 0) m1) / ((snd . M.elemAt 0) m2))))
       then
         do
           u1s <- describeUnits u1
@@ -809,8 +827,8 @@ xorX mx1 mx2 =
 boundUnits :: Monad m => ModelBuilderT m Units
 boundUnits = R.ask
 
-initialValueM bv v u iv =
-    newBoundaryEq (realConstant boundUnits bv .==. boundVariable) (return v) (realConstant u iv)
+initialValueM bv v u iv = do
+  newBoundaryEq (realConstant boundUnits bv .==. boundVariable) (return v) (realConstant u iv)
 
 initialValueX bv v iv =
   do
