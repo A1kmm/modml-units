@@ -566,6 +566,9 @@ realConstant u v = do
   u' <- u
   realConstantM u' v
 
+dConstant :: Monad m => Double -> ModelBuilderT m RealExpression
+dConstant = realConstant dimensionless
+
 realCommonSubexpressionM :: Monad m => RealExpression -> ModelBuilderT m RealExpression
 realCommonSubexpressionM e =
   do
