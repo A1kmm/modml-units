@@ -931,6 +931,18 @@ declareRealVariable u prettyName varName = do
                     (T.LitE (T.StringL prettyName))
   declareTaggedSomething applyUName varName
 
+minX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
+minX a b = do
+  a' <- realCommonSubexpression a
+  b' <- realCommonSubexpression b
+  ifX (a' .<. b') a' b'
+
+maxX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
+maxX a b = do
+  a' <- realCommonSubexpression a
+  b' <- realCommonSubexpression b
+  ifX (a' .<. b') b' a'
+
 infixr 2  .||.
 infixr 3  .&&.
 infix  4  .==., .<., .>., .<=., .>=.
