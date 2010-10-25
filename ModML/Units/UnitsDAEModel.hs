@@ -138,7 +138,9 @@ data RealExpression =
     Cosh RealExpression |
     ASinh RealExpression |
     ATanh RealExpression |
-    ACosh RealExpression
+    ACosh RealExpression |
+    -- Units from one first, value from second...
+    UnitsOf RealExpression RealExpression
           deriving (Eq, Ord, D.Typeable, D.Data, Show)
 
 class (Ord a) => CommonSubexpression a
@@ -408,6 +410,10 @@ translateRealExpression (Cosh r1) = unaryDimensionless B.Cosh r1
 translateRealExpression (ASinh r1) = unaryDimensionless B.ASinh r1
 translateRealExpression (ATanh r1) = unaryDimensionless B.ATanh r1
 translateRealExpression (ACosh r1) = unaryDimensionless B.ACosh r1
+translateRealExpression (UnitsOf r1 r2) = do
+  (u, _) <- translateRealExpression r1
+  (_, ex) <- translateRealExpression r2
+  return (u, ex)
 
 translateVariable v@(RealVariable _ n) = return $ (v, B.RealVariable n)
 translateSubexpression (FromRealCommonSubexpression rcs) =
@@ -763,6 +769,12 @@ acoshM = return . ACosh
 acoshX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
 acoshX = S.liftM ACosh
 
+unitsOfM :: Monad m => RealExpression -> RealExpression -> ModelBuilderT m RealExpression
+unitsOfM a b = return $ UnitsOf a b
+unitsOfX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
+unitsOfX = M.liftM2 UnitsOf
+unitsOf = unitsOfX
+
 -- Now define some constants...
 
 -- The constant pi.
@@ -942,6 +954,16 @@ maxX a b = do
   a' <- realCommonSubexpression a
   b' <- realCommonSubexpression b
   ifX (a' .<. b') b' a'
+
+signX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
+signX x = do
+  x' <- realCommonSubexpression x
+  let zero = unitsOf x' (dConstant 0)
+  ifX (x' .<. zero)
+    {- then -} (dConstant (-1)) $
+    {- else -} ifX (x' .>. zero)
+                 {- then -} (dConstant 1)
+                 {- else -} (dConstant 0)
 
 infixr 2  .||.
 infixr 3  .&&.
