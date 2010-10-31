@@ -88,13 +88,13 @@ data BoolExpression =
     -- A common subexpression tagged expression.
     BoolCommonSubexpressionE BoolCommonSubexpression |
     -- Logical and of two expressions.
-    BoolExpression `And` BoolExpression |
+    And BoolExpression BoolExpression |
     -- Logical not of an expression.
     Not BoolExpression |
     -- Logical or of two expressions.
-    BoolExpression `Or` BoolExpression |
-    RealExpression `LessThan` RealExpression |
-    RealExpression `Equal` RealExpression
+    Or BoolExpression BoolExpression |
+    LessThan RealExpression RealExpression |
+    Equal RealExpression RealExpression
                    deriving (Eq, Ord, D.Typeable, D.Data, Show)
 
 data RealExpression =
@@ -111,15 +111,15 @@ data RealExpression =
     -- If x {- then -} b {- else -} b
     If BoolExpression RealExpression RealExpression |
     -- A sum of two expressions.
-    RealExpression `Plus` RealExpression |
+    Plus RealExpression RealExpression |
     -- First expression minus second expression.
-    RealExpression `Minus` RealExpression |
+    Minus RealExpression RealExpression |
     -- The product of two expressions.
-    RealExpression `Times` RealExpression |
+    Times RealExpression RealExpression |
     -- a `Divided` {- by -} b
-    RealExpression `Divided` RealExpression |
+    Divided RealExpression RealExpression |
     -- a `Power` b - a to the power of b.
-    RealExpression `Power` RealExpression |
+    Power RealExpression RealExpression |
     -- The floor function...
     Floor RealExpression |
     -- The ceiling function...
@@ -139,8 +139,10 @@ data RealExpression =
     ASinh RealExpression |
     ATanh RealExpression |
     ACosh RealExpression |
+    RealExpressionTag String RealExpression |
     -- Units from one first, value from second...
-    UnitsOf RealExpression RealExpression
+    UnitsOf RealExpression RealExpression |
+    UnitsAssertion Units RealExpression
           deriving (Eq, Ord, D.Typeable, D.Data, Show)
 
 class (Ord a) => CommonSubexpression a
@@ -328,7 +330,7 @@ unaryDimensionless f ex =
         else
           do
             us <- describeUnits u
-            error $ (showString "Units mismatch - expected dimensionless units, got ") us
+            error $ (showString "Units mismatch on " . shows ex' . showString " - expected dimensionless units, got ") us
 
 translateRealEquation (RealEquation ex1 ex2) = binaryRealUnitsMatchFn "equation" (\u a b -> return $ B.RealEquation a b) ex1 ex2
 
@@ -393,7 +395,8 @@ translateRealExpression (LogBase r1 r2) = do
         do
           u1s <- describeUnits u1
           u2s <- describeUnits u2
-          error $ (showString "Units mismatch - " . showString u1s .
+          error $ (showString "Units mismatch on LogBase (" . shows ex1 .
+                   showString ") (" . shows ex2 . showString ") - " . showString u1s .
                    showString " does not differ by a dimensionless power from " .
                    showString u2s) ""
       else
@@ -410,10 +413,22 @@ translateRealExpression (Cosh r1) = unaryDimensionless B.Cosh r1
 translateRealExpression (ASinh r1) = unaryDimensionless B.ASinh r1
 translateRealExpression (ATanh r1) = unaryDimensionless B.ATanh r1
 translateRealExpression (ACosh r1) = unaryDimensionless B.ACosh r1
+translateRealExpression (RealExpressionTag s r) = do
+  (u, ex) <- (translateRealExpression r)
+  return $ (u, B.RealExpressionTag s ex)
 translateRealExpression (UnitsOf r1 r2) = do
   (u, _) <- translateRealExpression r1
   (_, ex) <- translateRealExpression r2
   return (u, ex)
+translateRealExpression (UnitsAssertion uExpect ex) = do
+  (uGot, ex') <- translateRealExpression ex
+  M.when (uExpect =~/ uGot) $ do
+    uExpects <- describeUnits uExpect
+    uGots <- describeUnits uGot
+    error $ (showString "Units assertion on " . shows ex' .
+             showString " failed: Expected units " .
+             showString uExpects . showString " but got ") uGots
+  return (uGot, ex')
 
 translateVariable v@(RealVariable _ n) = return $ (v, B.RealVariable n)
 translateSubexpression (FromRealCommonSubexpression rcs) =
@@ -769,11 +784,23 @@ acoshM = return . ACosh
 acoshX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
 acoshX = S.liftM ACosh
 
+realExpressionTagM :: Monad m => String -> RealExpression -> ModelBuilderT m RealExpression
+realExpressionTagM s = return . RealExpressionTag s
+realExpressionTagX :: Monad m => String -> ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
+realExpressionTagX s = S.liftM $ RealExpressionTag s
+realExpressionTag = realExpressionTagX
+
 unitsOfM :: Monad m => RealExpression -> RealExpression -> ModelBuilderT m RealExpression
-unitsOfM a b = return $ UnitsOf a b
+unitsOfM a = return . UnitsOf a
 unitsOfX :: Monad m => ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
 unitsOfX = M.liftM2 UnitsOf
 unitsOf = unitsOfX
+
+unitsAssertionM :: Monad m => Units -> RealExpression -> ModelBuilderT m RealExpression
+unitsAssertionM a = return . UnitsAssertion a
+unitsAssertionX :: Monad m => ModelBuilderT m Units -> ModelBuilderT m RealExpression -> ModelBuilderT m RealExpression
+unitsAssertionX = M.liftM2 UnitsAssertion
+unitsAssertion = unitsAssertionX
 
 -- Now define some constants...
 
