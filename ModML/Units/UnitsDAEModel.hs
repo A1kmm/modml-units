@@ -657,23 +657,14 @@ realVariableX :: Monad m => ModelBuilderT m RealVariable -> ModelBuilderT m Real
 realVariableX = S.liftM RealVariableE
 realVariable = realVariableX
 
-{-
-newRealVariableE u =
-  realVariable (newRealVariable u)
-newNamedRealVariableE u name = do
-  realVariable (newNamedRealVariable u name)
-
-newRealVariable :: Monad m => ModelBuilderT m Units -> ModelBuilderT m (ModelBuilderT m RealExpression)
-newRealVariable u = do
-  u' <- u
-  v <- newRealVariableE u'
+mkRealVariable :: Monad m => ModelBuilderT m Units -> ModelBuilderT m (ModelBuilderT m RealExpression)
+mkRealVariable u = do
+  v <- realVariable (newRealVariable u)
   return (return v)
 
-newNamedRealVariable u name = do
-  u' <- u
-  v <- newNamedRealVariableE u' name
+mkNamedRealVariable u name = do
+  v <- realVariable (newNamedRealVariable u name)
   return (return v)
--}
 
 boundVariableM :: Monad m => ModelBuilderT m RealExpression
 boundVariableM = return $ BoundVariableE
